@@ -24,7 +24,7 @@ fn get_line_vertical_pos(
 ) -> u16 {
     match scroll_from {
         ScrollFrom::Top => text_area.top() + line_idx - scroll_offset,
-        ScrollFrom::Bottom => text_area.bottom() - (line_idx + 1) + scroll_offset,
+        ScrollFrom::Bottom => text_area.bottom() + scroll_offset - (line_idx + 1),
     }
 }
 
