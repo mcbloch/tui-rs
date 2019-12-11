@@ -11,6 +11,15 @@ pub struct Styled<'a>(pub &'a str, pub Style);
 /// iterators for that).
 pub trait LineComposer<'a> {
     fn next_line(&mut self) -> Option<(&[Styled<'a>], u16)>;
+
+    fn collect_lines(&mut self) -> Vec<(Vec<Styled<'a>>, u16)> {
+        let mut vec = Vec::new();
+
+        while let Some((current_line, current_line_length)) = self.next_line() {
+            vec.push((current_line.to_vec(), current_line_length));
+        }
+        vec
+    }
 }
 
 /// A state machine that wraps lines on word boundaries.

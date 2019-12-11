@@ -8,12 +8,12 @@ use termion::input::MouseTerminal;
 use termion::raw::IntoRawMode;
 use termion::screen::AlternateScreen;
 use tui::backend::TermionBackend;
-use tui::layout::{Alignment, Constraint, Direction, Layout};
+use tui::layout::{Alignment, Constraint, Direction, Layout, ScrollFrom};
 use tui::style::{Color, Modifier, Style};
 use tui::widgets::{Block, Borders, Paragraph, Text, Widget};
 use tui::Terminal;
 
-use crate::util::event::{Event, Events};
+use crate::util::event::{Config, Event, Events};
 
 fn main() -> Result<(), failure::Error> {
     // Terminal initialization
@@ -24,7 +24,10 @@ fn main() -> Result<(), failure::Error> {
     let mut terminal = Terminal::new(backend)?;
     terminal.hide_cursor()?;
 
-    let events = Events::new();
+    let events = Events::with_config(Config {
+        exit_key: Key::Char('q'),
+        tick_rate: std::time::Duration::from_millis(250),
+    });
 
     let mut scroll: u16 = 0;
     loop {
@@ -82,14 +85,16 @@ fn main() -> Result<(), failure::Error> {
                 .wrap(true)
                 .render(&mut f, chunks[1]);
             Paragraph::new(text.iter())
-                .block(block.clone().title("Center, wrap"))
+                .block(block.clone().title("Center, wrap, ScrollFrom::Top"))
                 .alignment(Alignment::Center)
                 .wrap(true)
                 .scroll(scroll)
                 .render(&mut f, chunks[2]);
             Paragraph::new(text.iter())
-                .block(block.clone().title("Right, wrap"))
+                .block(block.clone().title("Right, wrap, ScrollFrom::Bottom"))
                 .alignment(Alignment::Right)
+                .scroll(scroll)
+                .scroll_from(ScrollFrom::Bottom)
                 .wrap(true)
                 .render(&mut f, chunks[3]);
         })?;

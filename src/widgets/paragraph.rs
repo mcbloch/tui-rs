@@ -3,7 +3,7 @@ use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
 use crate::buffer::Buffer;
-use crate::layout::{Alignment, Rect};
+use crate::layout::{Alignment, Rect, ScrollFrom};
 use crate::style::Style;
 use crate::widgets::reflow::{LineComposer, LineTruncator, Styled, WordWrapper};
 use crate::widgets::{Block, Text, Widget};
@@ -13,6 +13,18 @@ fn get_line_offset(line_width: u16, text_area_width: u16, alignment: Alignment) 
         Alignment::Center => (text_area_width / 2).saturating_sub(line_width / 2),
         Alignment::Right => text_area_width.saturating_sub(line_width),
         Alignment::Left => 0,
+    }
+}
+
+fn get_line_vertical_pos(
+    text_area: Rect,
+    line_idx: u16,
+    scroll_offset: u16,
+    scroll_from: ScrollFrom,
+) -> u16 {
+    match scroll_from {
+        ScrollFrom::Top => text_area.top() + line_idx - scroll_offset,
+        ScrollFrom::Bottom => text_area.bottom() - (line_idx + 1) + scroll_offset,
     }
 }
 
@@ -50,8 +62,10 @@ where
     text: T,
     /// Should we parse the text for embedded commands
     raw: bool,
-    /// Scroll
+    /// Scroll offset (in number of lines)
     scroll: u16,
+    /// Indicates if scroll offset starts from top or bottom of content
+    scroll_from: ScrollFrom,
     /// Aligenment of the text
     alignment: Alignment,
 }
@@ -68,6 +82,7 @@ where
             raw: false,
             text,
             scroll: 0,
+            scroll_from: ScrollFrom::Top,
             alignment: Alignment::Left,
         }
     }
@@ -94,6 +109,11 @@ where
 
     pub fn scroll(mut self, offset: u16) -> Paragraph<'a, 't, T> {
         self.scroll = offset;
+        self
+    }
+
+    pub fn scroll_from(mut self, scroll_from: ScrollFrom) -> Paragraph<'a, 't, T> {
+        self.scroll_from = scroll_from;
         self
     }
 
@@ -140,19 +160,48 @@ where
             Box::new(LineTruncator::new(&mut styled, text_area.width))
         };
         let mut y = 0;
-        while let Some((current_line, current_line_width)) = line_composer.next_line() {
-            if y >= self.scroll {
-                let mut x = get_line_offset(current_line_width, text_area.width, self.alignment);
-                for Styled(symbol, style) in current_line {
-                    buf.get_mut(text_area.left() + x, text_area.top() + y - self.scroll)
-                        .set_symbol(symbol)
-                        .set_style(*style);
-                    x += symbol.width() as u16;
+
+        match self.scroll_from {
+            ScrollFrom::Top => {
+                while let Some((current_line, current_line_width)) = line_composer.next_line() {
+                    if y >= self.scroll {
+                        let mut x =
+                            get_line_offset(current_line_width, text_area.width, self.alignment);
+                        let buf_y =
+                            get_line_vertical_pos(text_area, y, self.scroll, self.scroll_from);
+                        for Styled(symbol, style) in current_line {
+                            buf.get_mut(text_area.left() + x, buf_y)
+                                .set_symbol(symbol)
+                                .set_style(*style);
+                            x += symbol.width() as u16;
+                        }
+                    }
+                    y += 1;
+                    if y >= text_area.height + self.scroll {
+                        break;
+                    }
                 }
             }
-            y += 1;
-            if y >= text_area.height + self.scroll {
-                break;
+            ScrollFrom::Bottom => {
+                let mut all_lines = line_composer.collect_lines();
+                while let Some((current_line, current_line_width)) = all_lines.pop() {
+                    if y >= self.scroll {
+                        let mut x =
+                            get_line_offset(current_line_width, text_area.width, self.alignment);
+                        let buf_y =
+                            get_line_vertical_pos(text_area, y, self.scroll, self.scroll_from);
+                        for Styled(symbol, style) in current_line {
+                            buf.get_mut(text_area.left() + x, buf_y)
+                                .set_symbol(symbol)
+                                .set_style(style);
+                            x += symbol.width() as u16;
+                        }
+                    }
+                    y += 1;
+                    if y >= text_area.height + self.scroll {
+                        break;
+                    }
+                }
             }
         }
     }

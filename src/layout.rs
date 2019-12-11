@@ -43,6 +43,12 @@ pub enum Alignment {
     Right,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ScrollFrom {
+    Top,
+    Bottom,
+}
+
 // TODO: enforce constraints size once const generics has landed
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Layout {
