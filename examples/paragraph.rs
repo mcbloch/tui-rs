@@ -8,7 +8,7 @@ use termion::input::MouseTerminal;
 use termion::raw::IntoRawMode;
 use termion::screen::AlternateScreen;
 use tui::backend::TermionBackend;
-use tui::layout::{Alignment, Constraint, Direction, Layout, ScrollFrom};
+use tui::layout::{Alignment, Constraint, Direction, Layout, ScrollMode};
 use tui::style::{Color, Modifier, Style};
 use tui::widgets::{Block, Borders, Paragraph, Text, Widget};
 use tui::Terminal;
@@ -85,16 +85,16 @@ fn main() -> Result<(), failure::Error> {
                 .wrap(true)
                 .render(&mut f, chunks[1]);
             Paragraph::new(text.iter())
-                .block(block.clone().title("Center, wrap, ScrollFrom::Top"))
+                .block(block.clone().title("Center, wrap, ScrollMode::Normal"))
                 .alignment(Alignment::Center)
                 .wrap(true)
                 .scroll(scroll)
                 .render(&mut f, chunks[2]);
             Paragraph::new(text.iter())
-                .block(block.clone().title("Right, wrap, ScrollFrom::Bottom"))
+                .block(block.clone().title("Right, wrap, ScrollMode::Tail"))
                 .alignment(Alignment::Right)
                 .scroll(scroll)
-                .scroll_from(ScrollFrom::Bottom)
+                .scroll_mode(ScrollMode::Tail)
                 .wrap(true)
                 .render(&mut f, chunks[3]);
         })?;
