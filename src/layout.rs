@@ -44,9 +44,9 @@ pub enum Alignment {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ScrollFrom {
-    Top,
-    Bottom,
+pub enum ScrollMode {
+    Normal,
+    Tail,
 }
 
 // TODO: enforce constraints size once const generics has landed
