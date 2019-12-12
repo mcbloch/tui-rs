@@ -16,18 +16,6 @@ fn get_line_offset(line_width: u16, text_area_width: u16, alignment: Alignment) 
     }
 }
 
-fn get_line_vertical_pos(
-    text_area: Rect,
-    line_idx: u16,
-    scroll_offset: u16,
-    scroll_from: ScrollFrom,
-) -> u16 {
-    match scroll_from {
-        ScrollFrom::Top => text_area.top() + line_idx - scroll_offset,
-        ScrollFrom::Bottom => text_area.bottom() + scroll_offset - (line_idx + 1),
-    }
-}
-
 /// A widget to display some text.
 ///
 /// # Examples
@@ -66,6 +54,7 @@ where
     scroll: u16,
     /// Indicates if scroll offset starts from top or bottom of content
     scroll_from: ScrollFrom,
+    scroll_overflow_char: Option<char>,
     /// Aligenment of the text
     alignment: Alignment,
 }
@@ -83,6 +72,7 @@ where
             text,
             scroll: 0,
             scroll_from: ScrollFrom::Top,
+            scroll_overflow_char: None,
             alignment: Alignment::Left,
         }
     }
@@ -114,6 +104,14 @@ where
 
     pub fn scroll_from(mut self, scroll_from: ScrollFrom) -> Paragraph<'a, 't, T> {
         self.scroll_from = scroll_from;
+        self
+    }
+
+    pub fn scroll_overflow_char(
+        mut self,
+        scroll_overflow_char: Option<char>,
+    ) -> Paragraph<'a, 't, T> {
+        self.scroll_overflow_char = scroll_overflow_char;
         self
     }
 
@@ -159,50 +157,93 @@ where
         } else {
             Box::new(LineTruncator::new(&mut styled, text_area.width))
         };
-        let mut y = 0;
 
-        match self.scroll_from {
+        let (first_line_index, mut get_next_line): (
+            i16,
+            Box<dyn FnMut() -> Option<(Vec<Styled<'t>>, u16)>>,
+        ) = match self.scroll_from {
             ScrollFrom::Top => {
-                while let Some((current_line, current_line_width)) = line_composer.next_line() {
-                    if y >= self.scroll {
-                        let mut x =
-                            get_line_offset(current_line_width, text_area.width, self.alignment);
-                        let buf_y =
-                            get_line_vertical_pos(text_area, y, self.scroll, self.scroll_from);
-                        for Styled(symbol, style) in current_line {
-                            buf.get_mut(text_area.left() + x, buf_y)
-                                .set_symbol(symbol)
-                                .set_style(*style);
-                            x += symbol.width() as u16;
-                        }
-                    }
-                    y += 1;
-                    if y >= text_area.height + self.scroll {
-                        break;
-                    }
-                }
+                let get_next_line = Box::new(|| {
+                    line_composer
+                        .next_line()
+                        .map(|(line, line_width)| (line.to_vec(), line_width))
+                });
+
+                (self.scroll as i16, get_next_line)
             }
             ScrollFrom::Bottom => {
-                let mut all_lines = line_composer.collect_lines();
-                while let Some((current_line, current_line_width)) = all_lines.pop() {
-                    if y >= self.scroll {
-                        let mut x =
-                            get_line_offset(current_line_width, text_area.width, self.alignment);
-                        let buf_y =
-                            get_line_vertical_pos(text_area, y, self.scroll, self.scroll_from);
-                        for Styled(symbol, style) in current_line {
-                            buf.get_mut(text_area.left() + x, buf_y)
-                                .set_symbol(symbol)
-                                .set_style(style);
-                            x += symbol.width() as u16;
+                let all_lines = line_composer.collect_lines();
+                let num_lines = all_lines.len() as u16;
+                let scroll_offset = match self.scroll_overflow_char {
+                    // if scroll_overflow is not set, don't
+                    // ever scroll beyond the bounds of the content
+                    None => {
+                        if num_lines <= text_area.height + self.scroll {
+                            // prevents us from scrolling up past the
+                            // first line, or from scrolling at all
+                            // if num_lines <= text_area.height
+                            0
+                        } else {
+                            // default ScrollFrom::Bottom behavior,
+                            // self.scroll == 0 floats content to bottom,
+                            // self.scroll > 0 scrolling up, back in history
+                            (num_lines - (text_area.height + self.scroll)) as i16
                         }
                     }
-                    y += 1;
-                    if y >= text_area.height + self.scroll {
-                        break;
+                    // if scroll_overflow is set, scrolling up
+                    // back in history past the top of the content results
+                    // in a repeated character on each subsequent line 
+                    // (scroll_overflow_char)
+                    Some(_) => {
+                        if num_lines <= text_area.height {
+                            // if content doesn't fill the text_area,
+                            // scrolling should be reverse of normal
+                            // behavior
+                            -(self.scroll as i16)
+                        } else {
+                            // default ScrollFrom::Bottom behavior,
+                            // self.scroll == 0 floats content to bottom,
+                            // self.scroll > 0 scrolling up, back in history
+                            num_lines as i16 - (text_area.height + self.scroll) as i16
+                        }
                     }
+                };
+
+                let mut all_lines_iter = all_lines.into_iter();
+                let get_next_line = Box::new(move || all_lines_iter.next());
+
+                (scroll_offset, get_next_line)
+            }
+        };
+
+        let mut current_line_index = 0;
+
+        if let Some(overflow_char) = self.scroll_overflow_char {
+            if first_line_index < 0 {
+                for y in 0..-first_line_index {
+                    buf.get_mut(text_area.left(), text_area.top() + y as u16)
+                        .set_symbol(&overflow_char.to_string());
                 }
             }
+        }
+
+        while let Some((current_line, current_line_width)) = get_next_line() {
+            if current_line_index >= first_line_index {
+                let y = (current_line_index - first_line_index) as u16;
+                if y >= text_area.height {
+                    break;
+                }
+
+                let mut x = get_line_offset(current_line_width, text_area.width, self.alignment);
+
+                for Styled(symbol, style) in current_line {
+                    buf.get_mut(text_area.left() + x, text_area.top() + y)
+                        .set_symbol(symbol)
+                        .set_style(style);
+                    x += symbol.width() as u16;
+                }
+            }
+            current_line_index += 1;
         }
     }
 }
