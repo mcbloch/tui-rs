@@ -141,6 +141,7 @@ where
         self.background(text_area, buf, self.style.bg);
 
         let style = self.style;
+
         let mut styled = self.text.by_ref().flat_map(|t| match *t {
             Text::Raw(ref d) => {
                 let data: &'t str = d; // coerce to &str
@@ -185,14 +186,14 @@ where
                             0
                         } else {
                             // default ScrollFrom::Bottom behavior,
-                            // self.scroll == 0 floats content to bottom,
-                            // self.scroll > 0 scrolling up, back in history
+                            // scroll == 0 floats content to bottom,
+                            // scroll > 0 scrolling up, back in history
                             (num_lines - (text_area.height + self.scroll)) as i16
                         }
                     }
                     // if scroll_overflow is set, scrolling up
                     // back in history past the top of the content results
-                    // in a repeated character on each subsequent line 
+                    // in a repeated character on each subsequent line
                     // (scroll_overflow_char)
                     Some(_) => {
                         if num_lines <= text_area.height {
@@ -202,8 +203,8 @@ where
                             -(self.scroll as i16)
                         } else {
                             // default ScrollFrom::Bottom behavior,
-                            // self.scroll == 0 floats content to bottom,
-                            // self.scroll > 0 scrolling up, back in history
+                            // scroll == 0 floats content to bottom,
+                            // scroll > 0 scrolling up, back in history
                             num_lines as i16 - (text_area.height + self.scroll) as i16
                         }
                     }
@@ -218,32 +219,30 @@ where
 
         let mut current_line_index = 0;
 
-        if let Some(overflow_char) = self.scroll_overflow_char {
-            if first_line_index < 0 {
-                for y in 0..-first_line_index {
-                    buf.get_mut(text_area.left(), text_area.top() + y as u16)
-                        .set_symbol(&overflow_char.to_string());
+        for y in 0..text_area.height {
+            if (y as i16) < -first_line_index {
+                let overflow_char = self.scroll_overflow_char.unwrap();
+                buf.get_mut(text_area.left(), text_area.top() + y as u16)
+                    .set_symbol(&overflow_char.to_string());
+            } else {
+                while let Some((current_line, current_line_width)) = get_next_line() {
+                    if current_line_index >= first_line_index {
+                        let mut x =
+                            get_line_offset(current_line_width, text_area.width, self.alignment);
+
+                        for Styled(symbol, style) in current_line {
+                            buf.get_mut(text_area.left() + x, text_area.top() + y)
+                                .set_symbol(symbol)
+                                .set_style(style);
+                            x += symbol.width() as u16;
+                        }
+                        current_line_index += 1;
+                        break;
+                    } else {
+                        current_line_index += 1;
+                    }
                 }
             }
-        }
-
-        while let Some((current_line, current_line_width)) = get_next_line() {
-            if current_line_index >= first_line_index {
-                let y = (current_line_index - first_line_index) as u16;
-                if y >= text_area.height {
-                    break;
-                }
-
-                let mut x = get_line_offset(current_line_width, text_area.width, self.alignment);
-
-                for Styled(symbol, style) in current_line {
-                    buf.get_mut(text_area.left() + x, text_area.top() + y)
-                        .set_symbol(symbol)
-                        .set_style(style);
-                    x += symbol.width() as u16;
-                }
-            }
-            current_line_index += 1;
         }
     }
 }
