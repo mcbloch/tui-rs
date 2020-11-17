@@ -26,6 +26,7 @@ jobs:
         with:
           # Owner of the forked repository
           owner: mcbloch
+          upstream_repository: fdehau/tui-rs
           github_token: ${{ secrets.GITHUBTOKEN }}
           # Merge method to use
           merge_method: rebase
