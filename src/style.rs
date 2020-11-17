@@ -1,6 +1,9 @@
+//! `style` contains the primitives used to control how your user interface will look.
+
 use bitflags::bitflags;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Color {
     Reset,
     Black,
@@ -23,35 +26,19 @@ pub enum Color {
     Indexed(u8),
 }
 
-impl Color {
-    /// Returns a short code associated with the color, used for debug purpose
-    /// only
-    pub(crate) fn code(self) -> &'static str {
-        match self {
-            Color::Reset => "X",
-            Color::Black => "b",
-            Color::Red => "r",
-            Color::Green => "c",
-            Color::Yellow => "y",
-            Color::Blue => "b",
-            Color::Magenta => "m",
-            Color::Cyan => "c",
-            Color::Gray => "w",
-            Color::DarkGray => "B",
-            Color::LightRed => "R",
-            Color::LightGreen => "G",
-            Color::LightYellow => "Y",
-            Color::LightBlue => "B",
-            Color::LightMagenta => "M",
-            Color::LightCyan => "C",
-            Color::White => "W",
-            Color::Indexed(_) => "i",
-            Color::Rgb(_, _, _) => "o",
-        }
-    }
-}
-
 bitflags! {
+    /// Modifier changes the way a piece of text is displayed.
+    ///
+    /// They are bitflags so they can easily be composed.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// # use tui::style::Modifier;
+    ///
+    /// let m = Modifier::BOLD | Modifier::ITALIC;
+    /// ```
+    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
     pub struct Modifier: u16 {
         const BOLD              = 0b0000_0000_0001;
         const DIM               = 0b0000_0000_0010;
@@ -65,80 +52,230 @@ bitflags! {
     }
 }
 
-impl Modifier {
-    /// Returns a short code associated with the color, used for debug purpose
-    /// only
-    pub(crate) fn code(self) -> String {
-        use std::fmt::Write;
-
-        let mut result = String::new();
-
-        if self.contains(Modifier::BOLD) {
-            write!(result, "BO").unwrap();
-        }
-        if self.contains(Modifier::DIM) {
-            write!(result, "DI").unwrap();
-        }
-        if self.contains(Modifier::ITALIC) {
-            write!(result, "IT").unwrap();
-        }
-        if self.contains(Modifier::UNDERLINED) {
-            write!(result, "UN").unwrap();
-        }
-        if self.contains(Modifier::SLOW_BLINK) {
-            write!(result, "SL").unwrap();
-        }
-        if self.contains(Modifier::RAPID_BLINK) {
-            write!(result, "RA").unwrap();
-        }
-        if self.contains(Modifier::REVERSED) {
-            write!(result, "RE").unwrap();
-        }
-        if self.contains(Modifier::HIDDEN) {
-            write!(result, "HI").unwrap();
-        }
-        if self.contains(Modifier::CROSSED_OUT) {
-            write!(result, "CR").unwrap();
-        }
-
-        result
-    }
-}
-
+/// Style let you control the main characteristics of the displayed elements.
+///
+/// ```rust
+/// # use tui::style::{Color, Modifier, Style};
+/// Style::default()
+///     .fg(Color::Black)
+///     .bg(Color::Green)
+///     .add_modifier(Modifier::ITALIC | Modifier::BOLD);
+/// ```
+///
+/// It represents an incremental change. If you apply the styles S1, S2, S3 to a cell of the
+/// terminal buffer, the style of this cell will be the result of the merge of S1, S2 and S3, not
+/// just S3.
+///
+/// ```rust
+/// # use tui::style::{Color, Modifier, Style};
+/// # use tui::buffer::Buffer;
+/// # use tui::layout::Rect;
+/// let styles = [
+///     Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD | Modifier::ITALIC),
+///     Style::default().bg(Color::Red),
+///     Style::default().fg(Color::Yellow).remove_modifier(Modifier::ITALIC),
+/// ];
+/// let mut buffer = Buffer::empty(Rect::new(0, 0, 1, 1));
+/// for style in &styles {
+///   buffer.get_mut(0, 0).set_style(*style);
+/// }
+/// assert_eq!(
+///     Style {
+///         fg: Some(Color::Yellow),
+///         bg: Some(Color::Red),
+///         add_modifier: Modifier::BOLD,
+///         sub_modifier: Modifier::empty(),
+///     },
+///     buffer.get(0, 0).style(),
+/// );
+/// ```
+///
+/// The default implementation returns a `Style` that does not modify anything. If you wish to
+/// reset all properties until that point use [`Style::reset`].
+///
+/// ```
+/// # use tui::style::{Color, Modifier, Style};
+/// # use tui::buffer::Buffer;
+/// # use tui::layout::Rect;
+/// let styles = [
+///     Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD | Modifier::ITALIC),
+///     Style::reset().fg(Color::Yellow),
+/// ];
+/// let mut buffer = Buffer::empty(Rect::new(0, 0, 1, 1));
+/// for style in &styles {
+///   buffer.get_mut(0, 0).set_style(*style);
+/// }
+/// assert_eq!(
+///     Style {
+///         fg: Some(Color::Yellow),
+///         bg: Some(Color::Reset),
+///         add_modifier: Modifier::empty(),
+///         sub_modifier: Modifier::empty(),
+///     },
+///     buffer.get(0, 0).style(),
+/// );
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Style {
-    pub fg: Color,
-    pub bg: Color,
-    pub modifier: Modifier,
+    pub fg: Option<Color>,
+    pub bg: Option<Color>,
+    pub add_modifier: Modifier,
+    pub sub_modifier: Modifier,
 }
 
 impl Default for Style {
     fn default() -> Style {
         Style {
-            fg: Color::Reset,
-            bg: Color::Reset,
-            modifier: Modifier::empty(),
+            fg: None,
+            bg: None,
+            add_modifier: Modifier::empty(),
+            sub_modifier: Modifier::empty(),
         }
     }
 }
 
 impl Style {
-    pub fn reset(&mut self) {
-        self.fg = Color::Reset;
-        self.bg = Color::Reset;
-        self.modifier = Modifier::empty();
+    /// Returns a `Style` resetting all properties.
+    pub fn reset() -> Style {
+        Style {
+            fg: Some(Color::Reset),
+            bg: Some(Color::Reset),
+            add_modifier: Modifier::empty(),
+            sub_modifier: Modifier::all(),
+        }
     }
 
+    /// Changes the foreground color.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// # use tui::style::{Color, Style};
+    /// let style = Style::default().fg(Color::Blue);
+    /// let diff = Style::default().fg(Color::Red);
+    /// assert_eq!(style.patch(diff), Style::default().fg(Color::Red));
+    /// ```
     pub fn fg(mut self, color: Color) -> Style {
-        self.fg = color;
+        self.fg = Some(color);
         self
     }
+
+    /// Changes the background color.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// # use tui::style::{Color, Style};
+    /// let style = Style::default().bg(Color::Blue);
+    /// let diff = Style::default().bg(Color::Red);
+    /// assert_eq!(style.patch(diff), Style::default().bg(Color::Red));
+    /// ```
     pub fn bg(mut self, color: Color) -> Style {
-        self.bg = color;
+        self.bg = Some(color);
         self
     }
-    pub fn modifier(mut self, modifier: Modifier) -> Style {
-        self.modifier = modifier;
+
+    /// Changes the text emphasis.
+    ///
+    /// When applied, it adds the given modifier to the `Style` modifiers.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// # use tui::style::{Color, Modifier, Style};
+    /// let style = Style::default().add_modifier(Modifier::BOLD);
+    /// let diff = Style::default().add_modifier(Modifier::ITALIC);
+    /// let patched = style.patch(diff);
+    /// assert_eq!(patched.add_modifier, Modifier::BOLD | Modifier::ITALIC);
+    /// assert_eq!(patched.sub_modifier, Modifier::empty());
+    /// ```
+    pub fn add_modifier(mut self, modifier: Modifier) -> Style {
+        self.sub_modifier.remove(modifier);
+        self.add_modifier.insert(modifier);
         self
+    }
+
+    /// Changes the text emphasis.
+    ///
+    /// When applied, it removes the given modifier from the `Style` modifiers.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// # use tui::style::{Color, Modifier, Style};
+    /// let style = Style::default().add_modifier(Modifier::BOLD | Modifier::ITALIC);
+    /// let diff = Style::default().remove_modifier(Modifier::ITALIC);
+    /// let patched = style.patch(diff);
+    /// assert_eq!(patched.add_modifier, Modifier::BOLD);
+    /// assert_eq!(patched.sub_modifier, Modifier::ITALIC);
+    /// ```
+    pub fn remove_modifier(mut self, modifier: Modifier) -> Style {
+        self.add_modifier.remove(modifier);
+        self.sub_modifier.insert(modifier);
+        self
+    }
+
+    /// Results in a combined style that is equivalent to applying the two individual styles to
+    /// a style one after the other.
+    ///
+    /// ## Examples
+    /// ```
+    /// # use tui::style::{Color, Modifier, Style};
+    /// let style_1 = Style::default().fg(Color::Yellow);
+    /// let style_2 = Style::default().bg(Color::Red);
+    /// let combined = style_1.patch(style_2);
+    /// assert_eq!(
+    ///     Style::default().patch(style_1).patch(style_2),
+    ///     Style::default().patch(combined));
+    /// ```
+    pub fn patch(mut self, other: Style) -> Style {
+        self.fg = other.fg.or(self.fg);
+        self.bg = other.bg.or(self.bg);
+
+        self.add_modifier.remove(other.sub_modifier);
+        self.add_modifier.insert(other.add_modifier);
+        self.sub_modifier.remove(other.add_modifier);
+        self.sub_modifier.insert(other.sub_modifier);
+
+        self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn styles() -> Vec<Style> {
+        vec![
+            Style::default(),
+            Style::default().fg(Color::Yellow),
+            Style::default().bg(Color::Yellow),
+            Style::default().add_modifier(Modifier::BOLD),
+            Style::default().remove_modifier(Modifier::BOLD),
+            Style::default().add_modifier(Modifier::ITALIC),
+            Style::default().remove_modifier(Modifier::ITALIC),
+            Style::default().add_modifier(Modifier::ITALIC | Modifier::BOLD),
+            Style::default().remove_modifier(Modifier::ITALIC | Modifier::BOLD),
+        ]
+    }
+
+    #[test]
+    fn combined_patch_gives_same_result_as_individual_patch() {
+        let styles = styles();
+        for &a in &styles {
+            for &b in &styles {
+                for &c in &styles {
+                    for &d in &styles {
+                        let combined = a.patch(b.patch(c.patch(d)));
+
+                        assert_eq!(
+                            Style::default().patch(a).patch(b).patch(c).patch(d),
+                            Style::default().patch(combined)
+                        );
+                    }
+                }
+            }
+        }
     }
 }

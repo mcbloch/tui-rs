@@ -1,55 +1,30 @@
-use std::{
-    fmt,
-    io::{self, Write},
+use crate::{
+    backend::Backend,
+    buffer::Cell,
+    layout::Rect,
+    style::{Color, Modifier},
 };
-
 use crossterm::{
     cursor::{Hide, MoveTo, Show},
     execute, queue,
-    screen::AlternateScreen,
     style::{
-        Attribute as CAttribute, Color as CColor, SetAttribute, SetBackgroundColor,
+        Attribute as CAttribute, Color as CColor, Print, SetAttribute, SetBackgroundColor,
         SetForegroundColor,
     },
     terminal::{self, Clear, ClearType},
-    Output,
 };
-
-use crate::backend::Backend;
-use crate::style::{Color, Modifier};
-use crate::{buffer::Cell, layout::Rect, style};
+use std::io::{self, Write};
 
 pub struct CrosstermBackend<W: Write> {
-    alternate_screen: Option<AlternateScreen>,
-    stdout: W,
+    buffer: W,
 }
 
 impl<W> CrosstermBackend<W>
 where
     W: Write,
 {
-    pub fn new(stdout: W) -> CrosstermBackend<W> {
-        CrosstermBackend {
-            alternate_screen: None,
-            stdout,
-        }
-    }
-
-    pub fn with_alternate_screen(
-        stdout: W,
-        alternate_screen: AlternateScreen,
-    ) -> Result<CrosstermBackend<W>, io::Error> {
-        Ok(CrosstermBackend {
-            alternate_screen: Some(alternate_screen),
-            stdout,
-        })
-    }
-
-    pub fn alternate_screen(&self) -> Option<&AlternateScreen> {
-        match &self.alternate_screen {
-            Some(alt_screen) => Some(&alt_screen),
-            None => None,
-        }
+    pub fn new(buffer: W) -> CrosstermBackend<W> {
+        CrosstermBackend { buffer }
     }
 }
 
@@ -58,11 +33,11 @@ where
     W: Write,
 {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.stdout.write(buf)
+        self.buffer.write(buf)
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        self.stdout.flush()
+        self.buffer.flush()
     }
 }
 
@@ -74,49 +49,40 @@ where
     where
         I: Iterator<Item = (u16, u16, &'a Cell)>,
     {
-        use fmt::Write;
-
-        let mut string = String::with_capacity(content.size_hint().0 * 3);
-        let mut style = style::Style::default();
-        let mut last_y = 0;
-        let mut last_x = 0;
-        let mut inst = 0;
-
+        let mut fg = Color::Reset;
+        let mut bg = Color::Reset;
+        let mut modifier = Modifier::empty();
+        let mut last_pos: Option<(u16, u16)> = None;
         for (x, y, cell) in content {
-            if y != last_y || x != last_x + 1 || inst == 0 {
-                map_error(queue!(string, MoveTo(x, y)))?;
+            // Move the cursor if the previous location was not (x - 1, y)
+            if !matches!(last_pos, Some(p) if x == p.0 + 1 && y == p.1) {
+                map_error(queue!(self.buffer, MoveTo(x, y)))?;
             }
-            last_x = x;
-            last_y = y;
-            if cell.style.modifier != style.modifier {
+            last_pos = Some((x, y));
+            if cell.modifier != modifier {
                 let diff = ModifierDiff {
-                    from: style.modifier,
-                    to: cell.style.modifier,
+                    from: modifier,
+                    to: cell.modifier,
                 };
-                diff.queue(&mut string)?;
-                inst += 1;
-                style.modifier = cell.style.modifier;
+                diff.queue(&mut self.buffer)?;
+                modifier = cell.modifier;
             }
-            if cell.style.fg != style.fg {
-                let color = CColor::from(cell.style.fg);
-                map_error(queue!(string, SetForegroundColor(color)))?;
-                style.fg = cell.style.fg;
-                inst += 1;
+            if cell.fg != fg {
+                let color = CColor::from(cell.fg);
+                map_error(queue!(self.buffer, SetForegroundColor(color)))?;
+                fg = cell.fg;
             }
-            if cell.style.bg != style.bg {
-                let color = CColor::from(cell.style.bg);
-                map_error(queue!(string, SetBackgroundColor(color)))?;
-                style.bg = cell.style.bg;
-                inst += 1;
+            if cell.bg != bg {
+                let color = CColor::from(cell.bg);
+                map_error(queue!(self.buffer, SetBackgroundColor(color)))?;
+                bg = cell.bg;
             }
 
-            string.push_str(&cell.symbol);
-            inst += 1;
+            map_error(queue!(self.buffer, Print(&cell.symbol)))?;
         }
 
         map_error(queue!(
-            self.stdout,
-            Output(string),
+            self.buffer,
             SetForegroundColor(CColor::Reset),
             SetBackgroundColor(CColor::Reset),
             SetAttribute(CAttribute::Reset)
@@ -124,11 +90,11 @@ where
     }
 
     fn hide_cursor(&mut self) -> io::Result<()> {
-        map_error(execute!(self.stdout, Hide))
+        map_error(execute!(self.buffer, Hide))
     }
 
     fn show_cursor(&mut self) -> io::Result<()> {
-        map_error(execute!(self.stdout, Show))
+        map_error(execute!(self.buffer, Show))
     }
 
     fn get_cursor(&mut self) -> io::Result<(u16, u16)> {
@@ -137,11 +103,11 @@ where
     }
 
     fn set_cursor(&mut self, x: u16, y: u16) -> io::Result<()> {
-        map_error(execute!(self.stdout, MoveTo(x, y)))
+        map_error(execute!(self.buffer, MoveTo(x, y)))
     }
 
     fn clear(&mut self) -> io::Result<()> {
-        map_error(execute!(self.stdout, Clear(ClearType::All)))
+        map_error(execute!(self.buffer, Clear(ClearType::All)))
     }
 
     fn size(&self) -> io::Result<Rect> {
@@ -152,7 +118,7 @@ where
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        <CrosstermBackend<W> as Write>::flush(self)
+        self.buffer.flush()
     }
 }
 
@@ -192,11 +158,10 @@ struct ModifierDiff {
     pub to: Modifier,
 }
 
-#[cfg(unix)]
 impl ModifierDiff {
     fn queue<W>(&self, mut w: W) -> io::Result<()>
     where
-        W: fmt::Write,
+        W: io::Write,
     {
         //use crossterm::Attribute;
         let removed = self.from - self.to;
@@ -251,31 +216,6 @@ impl ModifierDiff {
             map_error(queue!(w, SetAttribute(CAttribute::RapidBlink)))?;
         }
 
-        Ok(())
-    }
-}
-
-#[cfg(windows)]
-impl ModifierDiff {
-    fn queue<W>(&self, mut w: W) -> io::Result<()>
-    where
-        W: fmt::Write,
-    {
-        let removed = self.from - self.to;
-        if removed.contains(Modifier::BOLD) {
-            map_error(queue!(w, SetAttribute(CAttribute::NormalIntensity)))?;
-        }
-        if removed.contains(Modifier::UNDERLINED) {
-            map_error(queue!(w, SetAttribute(CAttribute::NoUnderline)))?;
-        }
-
-        let added = self.to - self.from;
-        if added.contains(Modifier::BOLD) {
-            map_error(queue!(w, SetAttribute(CAttribute::Bold)))?;
-        }
-        if added.contains(Modifier::UNDERLINED) {
-            map_error(queue!(w, SetAttribute(CAttribute::Underlined)))?;
-        }
         Ok(())
     }
 }
