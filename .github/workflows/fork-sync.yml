@@ -26,5 +26,6 @@ jobs:
         with:
           # Owner of the forked repository
           owner: mcbloch
+          github_token: ${{ secrets.GITHUBTOKEN }}
           # Merge method to use
           merge_method: rebase
